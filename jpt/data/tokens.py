@@ -1,8 +1,8 @@
 import numpy as np
 import pickle
 import random
+from ..const import span
 
-span = 512
 tknum = '01'
 fp_tk = f'saved/tokens/tokenizer-{tknum}.pickle'
 
@@ -19,7 +19,7 @@ class Tokenizer:
         return t
 
     def decode(self, t):
-        t = [random.choices(range(span), i) for i in t]
+        t = [np.random.choice(range(span), 1, i) for i in t]
         t = self.decompress(t)
         t = self.tostr(t)
         return t
@@ -36,9 +36,17 @@ class Simple(Tokenizer):
         return [self.enc[i] for i in t]
 
 class BPE(Tokenizer):
+    def b2d(self):
+        self.df = {}
+        self.mln = 0
+        for i,tp in enumerate(self.bloc):
+            self.df[*tp] = i
+            self.mln = max(self.mln, len(tp))
+    
     def load(self, fp):
         with open(fp, 'rb') as f:
             self.bloc = pickle.load(f)
+            self.b2d()
         print('loaded')
     
     def save(self, fp):
@@ -55,14 +63,16 @@ class BPE(Tokenizer):
     def train(self, data):
         dt = [
             self.translate(t)
-            for i,t in zip(range(100), data)
+            for _,t in zip(range(100), data)
         ]
         pair = {}
+        def incr(p): pair[p] = pair.get(p,0)+1
         self.bloc = [[x] for x in range(256)]
         for t in dt:
             for a,b in zip(t, t[1:]):
-                pair[a,b] = pair.get((a,b), 0)+1
+                incr((a,b))
         while len(self.bloc) < span:
+            if len(self.bloc)%32==0: print(len(self.bloc))
             p1,p2 = p = max(pair.keys(), key=pair.get)
             pair[p] = 0
             rep = len(self.bloc)
@@ -71,35 +81,50 @@ class BPE(Tokenizer):
                 l = dt[i]
                 j = 0
                 while j<len(l):
-                    if l[j]==p1 and l[j+1]==p2:
+                    if l[j:j+2]==list(p):
                         l = l[:j] + [rep] + l[j+2:]
+                        if j>0:
+                            incr((l[j],rep))
+                        if j+1<len(l):
+                            incr((rep,l[j+1]))
                     j += 1
                 dt[i] = l
+        print(self.bloc)
+        self.b2d()
     
     def compress(self, t):
         o = []
         j = 0
+        l = self.mln
         while j<len(t):
-            for i,b in enumerate(self.bloc[:255:-1]):
-                l = len(b)
-                if t[j:j+l]==i:
-                    o.append(span-1-i)
-                    j += l
+            for l2 in range(l, 0, -1):
+                t2 = tuple(t[j:j+l2])
+                if t2 in self.df:
+                    o.append(self.df[t2])
+                    j += l2
                     break
-            else:
-                o.append(t[j])
-                j+=1
+        #print('c factor:', len(t)/len(o))
         return o
     
     def decompress(self, arr):
-        for i,bk in enumerate(self.bloc):
-            j = 0
-            while j<len(arr):
-                if arr[j]==bk:
-                    arr = arr[:j] + bk + arr[j+1:]
-                j+=1
-        return arr
+        print(self.bloc)
+        out = []
+        for i in arr:
+            out += self.bloc[i[0]]
+        #print('c factor:', len(out)/len(arr))
+        return out
 
 enc = BPE()
-enc.load(fp_tk)
+if __name__=='__main__':
+    import datasets as ds
+    dst = ds.load_dataset(
+        path="openwebtext",
+        streaming=True,
+        split="train",
+    )
+    enc.train(dst)
+    enc.save(fp_tk)
+else:
+    enc.load(fp_tk)
 assert len(enc.bloc)==span
+

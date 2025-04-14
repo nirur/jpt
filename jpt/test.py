@@ -1,5 +1,5 @@
 from . import data
-from .construct import model
+from .defns.construct import model
 import numpy as np
 from jax import numpy as jnp
 
@@ -8,7 +8,7 @@ enc = data.enc
 enc.translate = lambda x: x.encode('utf-8')
 
 out = []
-text = '\n'*data.rlens
+text = ' '*data.rlens
 text = enc.encode(text)
 shaped = data.splice(text)
 for i in range(2000):
