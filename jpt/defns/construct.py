@@ -1,18 +1,22 @@
 from .frame import Model
 from .layers import *
-from .optims import SGD, AdaDelta
+from .optims import *
 from .. import const
-from jax import nn, numpy as np
+from jax import nn, numpy as jnp, jit
 
+@jit
 def cce(x, y):
-    ce = - (np.log(x) * y)
-    return ce.sum(-1).mean()
+    return - (y * jnp.log(x)).sum(-1).mean()
 
-enc_dim = 256
+enc_dim = 192
 stack = [PosEnc(enc_dim)]
-for i in range(8):
-    stack.append(MHAttn(8))
-    stack.append(FFW(2*enc_dim))
+for i in range(12):
+    stack += [
+        MHAttn(16),
+        LayerNorm(),
+        FFW(4*enc_dim),
+        LayerNorm(),
+    ]
 stack += [
     Linear(const.span),
     Lambda(nn.softmax),
@@ -25,10 +29,18 @@ model = Model(
         const.span,
     ],
     stack=stack,
-    optim=AdaDelta(
-        rho=0.8,
+    optim=
+    #SGD(
+    #    lr=3e-3,
+    #    momentum=0.2,
+    #    nesterov=True,
+    #),
+    AdaDelta(
+        rho=0.95,
         eps=1e-7,
+        lr=1.0,
     ),
+    #Adam(lr=1e-3),
     lossfn=cce,
     fp = 'saved/models/00.npz',
 )

@@ -8,11 +8,13 @@ from jax import random, tree, numpy as jnp
 
 key = random.PRNGKey(0) # for random nums
 
+clipsize = 1e5
+
 dev = tuple(jax.devices())
 mv = lambda arr, to: jax.device_put(arr, device=to)
 ndevs = len(dev)
 
-@jit
+@partial(jit)
 def combine(arr, norm):
     return tree.map(lambda *pms: sum(pms)/norm, *arr)
 
@@ -32,7 +34,7 @@ def pred(params, model, i):
     ind = 0
     for l in model:
         i = l(i, *params[ind:ind+l.params])
-        i = jnp.clip(i, -1e6, 1e6)
+        i = jnp.clip(i, -clipsize, clipsize)
         ind += l.params
     return i
     
@@ -41,14 +43,13 @@ def pred(params, model, i):
 def loss(params, model, loss_fn, x, y):
     return loss_fn(pred(params, model, x), y)
 
-@partial(jit, static_argnums=2)
+@partial(jit, static_argnums=2, donate_argnums=(0,3))
 def upd(weights, grad, optim, oparams):
     return optim(weights, grad, *oparams)
 
 class Model:
     def __init__(self, shape, stack, optim, lossfn, fp=None):
         self.calls = tuple(stack)
-        self.optim = optim
         self.lossfn = lossfn
         self.fp = fp
         self.shape = list(shape) # External (layer) use
@@ -56,7 +57,21 @@ class Model:
         self.weights = () # Immutable to aid with jitting
         for call in stack:
             self.weights += call.init(shape)
+        
+        self.set_optim(optim)
+    
+    def set_optim(self, optim):
+        self.optim = optim
         self.o_weights = optim.init(self.weights)
+    
+    def count_weights(self):
+        s = 0
+        for w in self.weights:
+            p = 1
+            for d in w.shape:
+                p *= d
+            s += p
+        return s
     
     def pred(self, x): # External use
         return pred(self.weights, self.calls, x)
@@ -67,7 +82,7 @@ class Model:
     def _loss(self, params, x, y):
         return loss(params, self.calls, self.lossfn, x, y)
     
-    def train(self, train, val, epochs=80, per_epoch=100, save_freq=50):
+    def train(self, train, val, epochs=80, per_epoch=100):
         train = iter(train)
         val = iter(val)
         itr = 0
@@ -83,11 +98,12 @@ class Model:
                 l,g = self._loss(w_dev[ind], *next(train))
                 w_dev[ind], ow_dev[ind] = upd(w_dev[ind], g, self.optim, ow_dev[ind])
                 losses[ind] += l
+                #time.sleep(0.08)
             self.weights = join(w_dev, ndevs)
             self.o_weights = join(ow_dev, ndevs)
             l_mean = join(losses, per_epoch)
             lval = self._loss(self.weights, *next(val))[0]
-            if not ep%save_freq: self.save_weights()
+            self.save_weights()
             print(f"{l_mean:>.4}, {lval:>.4}")
             print('epoch time:', time.time()-t_epoch)
         self.save_weights()
@@ -109,8 +125,8 @@ class Layer:
         self.params = len(wgts)
         return wgts
     
-    def mw(self, *shape):
-        return random.normal(key, shape) * 0.05
+    def mw(self, *shape, initfn=random.normal):
+        return initfn(key, shape)
 
 class Optim:
     def __init__(self, *args, **kwargs):

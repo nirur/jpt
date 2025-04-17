@@ -24,6 +24,36 @@ class Lambda(Layer):
     def __call__(self, i):
         return self.fn(i)
 
+class LayerNorm(Layer):
+    def build(self, eps=1e-7):
+        self.eps = eps
+        self.shape = tuple(self.shape)
+        shp = self.shape[1:-1]
+        return (
+            self.mw(*shp, initfn=lambda _,sh: jnp.ones(sh)),
+            self.mw(*shp, initfn=lambda _,sh: jnp.zeros(sh)),
+        )
+    
+    def __call__(self, i, gamma, beta):
+        #print(self.shape)
+        ln = self.shape[-1]
+        g = self.nax(gamma, ln)
+        b = self.nax(beta, ln)
+        
+        mean = i.mean(axis=-1)
+        mean = self.nax(mean, ln)
+        i -= mean
+        
+        std = ((i**2).sum(axis=-1) + self.eps)**0.5
+        std = self.nax(std, ln)
+        i /= std
+        
+        return i * g + b
+    
+    def nax(self, mat, ln):
+        mat = jnp.expand_dims(mat, -1)
+        return jnp.repeat(mat, ln, axis=-1)
+
 class PosEnc(Layer):
     def build(self, enc):
         _, T, C = self.shape
@@ -41,15 +71,15 @@ class FFW(Layer):
     def build(self, hdm):
         C = self.shape[-1]
         return (
-            self.mw(C, hdm),
-            self.mw(hdm),
-            self.mw(hdm, C),
-            self.mw(C),
+            self.mw(C, hdm) * 0.02,
+            self.mw(hdm) * 0.02,
+            self.mw(hdm, C) * 0.02,
+            self.mw(C) * 0.02,
         )
     
     def __call__(self, i, m1, b1, m2, b2):
         i = (i @ m1) + b1
-        i = nn.leaky_relu(i)
+        i = nn.gelu(i)
         i = (i @ m2) + b2
         return i
 
@@ -66,10 +96,10 @@ class MHAttn(Layer):
             self.mask[i, i+1:] = -inf
         
         return (
-            self.mw(H, C, D),
-            self.mw(H, C, D),
-            self.mw(H, C, C),
-            self.mw(C),
+            self.mw(H, C, D) * 0.02,
+            self.mw(H, C, D) * 0.02,
+            self.mw(H, C, C) * 0.02,
+            self.mw(C) * 0.02,
         )
     
     def __call__(self, i, k, q, v, b):

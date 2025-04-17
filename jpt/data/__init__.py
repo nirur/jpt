@@ -19,7 +19,12 @@ def loader(*dsts):
     while True:
         for d in dsts:
             for i in d:
-                v = splice(enc.encode(i))
+                v = i['text']
+                #print('ts:', v)
+                v = enc.encode(v)
+                if len(v)<const.rlens:
+                    continue
+                v = splice(v)
                 for j in range(0, len(v)-const.batch, const.batch):
                     yield v[j:j+const.batch], v[j+1:j+const.batch+1]
 
@@ -28,25 +33,3 @@ def splice(t):
     v = v.swapaxes(1, 2)
     return v
 
-configs = [
-    {
-        "path": "openwebtext",
-        "streaming": True,
-        "split": "train",
-    },
-    {
-        "path": "roneneldan/TinyStories",
-    },
-    {
-        "path": "HuggingFaceFW/fineweb",
-        "name": "CC-MAIN-2024-10",
-        "split": "train",
-        "streaming": True,
-    },
-    {
-        "path": "HuggingFaceFW/fineweb",
-        "name": "sample-10BT",
-        "split": "train",
-        "streaming": True,
-    },
-]

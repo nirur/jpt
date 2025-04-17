@@ -1,3 +1,4 @@
+from jax import numpy as jnp
 import numpy as np
 import pickle
 import random
@@ -9,7 +10,7 @@ fp_tk = f'saved/tokens/tokenizer-{tknum}.pickle'
 class Tokenizer:
     def onehot(self, t):
         ret = np.zeros((len(t), span))
-        ret[range(len(t)), t] = 1
+        ret[list(range(len(t))), t] = 1
         return ret
     
     def encode(self, t):
@@ -19,12 +20,13 @@ class Tokenizer:
         return t
 
     def decode(self, t):
-        t = [np.random.choice(range(span), 1, i) for i in t]
+        t = [random.choices(range(span), i)[0] for i in t]
+        #t = [np.random.choice(range(span), 1, i)[0] for i in t]
         t = self.decompress(t)
         t = self.tostr(t)
         return t
 
-class Simple(Tokenizer):
+class Shakespeare(Tokenizer):
     enc = "\n !$&',-.3:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     def compress(self, t): return t
     def decompress(self, t): return t
@@ -34,6 +36,17 @@ class Simple(Tokenizer):
     
     def tostr(self, t):
         return [self.enc[i] for i in t]
+
+class Ascii(Tokenizer):
+    def compress(self, t): return t
+    def decompress(self, t): return t
+    
+    def translate(self, t):
+        return [min(max(ord(i),0),span-1) for i in t]
+    
+    def tostr(self, t):
+        #print(t)
+        return ''.join([chr(i) for i in t])
 
 class BPE(Tokenizer):
     def b2d(self):
@@ -54,7 +67,6 @@ class BPE(Tokenizer):
             pickle.dump(self.bloc, f)
     
     def translate(self, t):
-        t = t['text']
         return t.encode('utf-8')
     
     def tostr(self, t):
@@ -103,11 +115,10 @@ class BPE(Tokenizer):
                     o.append(self.df[t2])
                     j += l2
                     break
-        #print('c factor:', len(t)/len(o))
+        print('cf:', len(t)/len(o))
         return o
     
     def decompress(self, arr):
-        print(self.bloc)
         out = []
         for i in arr:
             out += self.bloc[i[0]]
@@ -115,16 +126,17 @@ class BPE(Tokenizer):
         return out
 
 enc = BPE()
+#enc = Ascii()
 if __name__=='__main__':
     import datasets as ds
+    from .configs import conf
     dst = ds.load_dataset(
-        path="openwebtext",
-        streaming=True,
-        split="train",
+        **conf[0]
     )
     enc.train(dst)
     enc.save(fp_tk)
 else:
     enc.load(fp_tk)
-assert len(enc.bloc)==span
+    assert len(enc.bloc)==span
+    #pass
 

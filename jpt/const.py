@@ -1,4 +1,5 @@
 span = 512
+#span = 128
 
-rlens = 128
-batch = 16
+rlens = 256
+batch = 32

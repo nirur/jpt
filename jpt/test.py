@@ -1,15 +1,15 @@
-from . import data
+from . import const, data
 from .defns.construct import model
 import numpy as np
 from jax import numpy as jnp
 
 model.load_weights()
 enc = data.enc
-enc.translate = lambda x: x.encode('utf-8')
 
 out = []
-text = ' '*data.rlens
+text = ' '*const.rlens
 text = enc.encode(text)
+#print(enc.decode(text))
 shaped = data.splice(text)
 for i in range(2000):
     add = model.pred(shaped)[:, -1:]
