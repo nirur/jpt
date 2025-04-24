@@ -15,12 +15,13 @@ def fetch(cfg):
     d = [dst.shard(val_prop, i) for i in range(val_prop)]
     return loader(*d[:-1]), loader(d[-1])
 
-def loader(*dsts):
+def loader(*dsts, tindex=True):
     while True:
         for d in dsts:
             for i in d:
-                v = i['text']
-                #print('ts:', v)
+                v = i
+                if tindex:
+                    v = v['text']
                 v = enc.encode(v)
                 if len(v)<const.rlens:
                     continue
@@ -33,3 +34,10 @@ def splice(t):
     v = v.swapaxes(1, 2)
     return v
 
+def fetch_shakespeare():
+    with open('saved/raw-data/shakespeare.txt') as f:
+        data = f.read()
+    l = int(len(data)*(1-1/val_prop))
+    d1 = data[:l]
+    d2 = data[l:]
+    return loader([d1], tindex=False), loader([d2], tindex=False)

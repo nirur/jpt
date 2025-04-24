@@ -2,14 +2,17 @@ from jax import numpy as jnp
 import numpy as np
 import pickle
 import random
-from ..const import span
+import time
+#import heapq
+import tiktoken
+#from ..const import span
 
 tknum = '01'
 fp_tk = f'saved/tokens/tokenizer-{tknum}.pickle'
 
 class Tokenizer:
     def onehot(self, t):
-        ret = np.zeros((len(t), span))
+        ret = np.zeros((len(t), self.span))
         ret[list(range(len(t))), t] = 1
         return ret
     
@@ -18,16 +21,20 @@ class Tokenizer:
         t = self.compress(t)
         t = self.onehot(t)
         return t
-
+    
+    def sample(self, t):
+        #return [np.random.choice(1, i[:-1])[0,0] for i in t]
+        return [random.choices(range(self.span), i)[0] for i in t]
+    
     def decode(self, t):
-        t = [random.choices(range(span), i)[0] for i in t]
-        #t = [np.random.choice(range(span), 1, i)[0] for i in t]
+        t = self.sample(t)
         t = self.decompress(t)
         t = self.tostr(t)
         return t
 
 class Shakespeare(Tokenizer):
     enc = "\n !$&',-.3:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    span = len(enc)
     def compress(self, t): return t
     def decompress(self, t): return t
     
@@ -35,14 +42,15 @@ class Shakespeare(Tokenizer):
         return [self.enc.index(i) for i in t]
     
     def tostr(self, t):
-        return [self.enc[i] for i in t]
+        return ''.join([self.enc[i] for i in t])
 
 class Ascii(Tokenizer):
+    span = 128
     def compress(self, t): return t
     def decompress(self, t): return t
     
     def translate(self, t):
-        return [min(max(ord(i),0),span-1) for i in t]
+        return [min(max(ord(i),0),self.span-1) for i in t]
     
     def tostr(self, t):
         #print(t)
@@ -59,7 +67,8 @@ class BPE(Tokenizer):
     def load(self, fp):
         with open(fp, 'rb') as f:
             self.bloc = pickle.load(f)
-            self.b2d()
+        self.b2d()
+        self.span = len(self.bloc)
         print('loaded')
     
     def save(self, fp):
@@ -73,9 +82,10 @@ class BPE(Tokenizer):
         return bytes(t).decode('utf-8', errors='replace')
     
     def train(self, data):
+        tme = time.time()
         dt = [
-            self.translate(t)
-            for _,t in zip(range(100), data)
+            list(self.translate(t['text']))
+            for _,t in zip(range(200), data)
         ]
         pair = {}
         def incr(p): pair[p] = pair.get(p,0)+1
@@ -83,24 +93,34 @@ class BPE(Tokenizer):
         for t in dt:
             for a,b in zip(t, t[1:]):
                 incr((a,b))
-        while len(self.bloc) < span:
-            if len(self.bloc)%32==0: print(len(self.bloc))
+        while len(self.bloc) < self.span:
+            if len(self.bloc)%32==0:
+                print(len(self.bloc), time.time()-tme)
+                tme = time.time()
             p1,p2 = p = max(pair.keys(), key=pair.get)
             pair[p] = 0
+            lp = list(p)
             rep = len(self.bloc)
             self.bloc.append(self.bloc[p1]+self.bloc[p2])
             for i in range(len(dt)):
                 l = dt[i]
+                #print('bln:', len(l))
                 j = 0
-                while j<len(l):
-                    if l[j:j+2]==list(p):
-                        l = l[:j] + [rep] + l[j+2:]
-                        if j>0:
-                            incr((l[j],rep))
-                        if j+1<len(l):
-                            incr((rep,l[j+1]))
+                lah = 0 # lookahead
+                while j+lah<len(l):
+                    if l[j+lah:j+lah+2]==list(p):
+                        l[j] = rep
+                        lah += 1
+                        if j+lah>0:
+                            incr((l[j-1],rep))
+                        if j+lah+1<len(l):
+                            incr((rep,l[j+lah+1]))
+                    else:
+                        l[j] = l[j+lah]
                     j += 1
-                dt[i] = l
+                dt[i] = l[:j]
+                #print('aln:', j)
+        self.span = len(self.bloc)
         print(self.bloc)
         self.b2d()
     
@@ -121,13 +141,20 @@ class BPE(Tokenizer):
     def decompress(self, arr):
         out = []
         for i in arr:
-            out += self.bloc[i[0]]
+            out += self.bloc[i]
         #print('c factor:', len(out)/len(arr))
         return out
 
-enc = BPE()
-#enc = Ascii()
-if __name__=='__main__':
+class TKWrapper(Tokenizer):
+    def __init__(self, ec='p50k_base'):
+        self.ec = tiktoken.get_encoding('p50k_base')
+        self.span = 50257
+    def translate(self, t): return t
+    def tostr(self, t): return t
+    def compress(self, t): return self.ec.encode(t)
+    def decompress(self, t): return self.ec.decode(t)
+
+def trn():
     import datasets as ds
     from .configs import conf
     dst = ds.load_dataset(
@@ -135,8 +162,14 @@ if __name__=='__main__':
     )
     enc.train(dst)
     enc.save(fp_tk)
+
+if __name__=='__main__':
+    trn()
 else:
+    enc = BPE()
     enc.load(fp_tk)
-    assert len(enc.bloc)==span
     #pass
+    #enc = TKWrapper()
+    ## verify the span matches with TKWrapper
+    #enc = Shakespeare()
 
