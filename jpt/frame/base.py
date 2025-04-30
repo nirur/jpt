@@ -38,6 +38,7 @@ def devsplit(devs, arr):
 
 @partial(jit, static_argnums=1)
 def pred(params, model, i):
+    raise NotImplementedError()
     for p,l in zip(params, model):
         i = l(i, *p)
         i = jnp.clip(i, -clipsize, clipsize)
@@ -155,6 +156,7 @@ class Layer:
 
 class Optim:
     def __init__(self, *args, **kwargs):
+        raise NotImplementedError()
         self.args = args
         self.kwargs = kwargs
         self.sp_c = sparse.sparsify(self.call)
