@@ -6,9 +6,10 @@ import pickle
 import jax
 from jax import grad, jit, value_and_grad
 from jax import random, tree, numpy as jnp
+from jax.experimental import sparse
 #from jax.tree_util import register_pytree_node_class as pytree_cls
 
-key = random.PRNGKey(0) # for random nums
+key = const.key
 
 clipsize = 1e5
 
@@ -43,11 +44,12 @@ def pred(params, model, i):
     return i
     
 @partial(jit, static_argnums=(1,2))
-@value_and_grad
+@sparse.value_and_grad
+#@value_and_grad
 def loss(params, model, loss_fn, x, y):
     return loss_fn(pred(params, model, x), y)
 
-@partial(jit, static_argnums=2, donate_argnums=(0,))
+@partial(jit, static_argnums=2)
 def upd(weights, grad, optim, oparams):
     return optim(weights, grad, *oparams)
 
@@ -147,20 +149,24 @@ class Layer:
         self.shape = shape
         #self.params = len(wgts)
         return self.build(*self.args, **self.kwargs)
-
     
-    def mw(self, *shape, initfn=random.normal):
-        return initfn(key, shape)
+    def mw(self, *shape):
+        return random.normal(key, shape)
 
 class Optim:
     def __init__(self, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs
+        self.sp_c = sparse.sparsify(self.call)
     
     def init(self, weights):
-        weights = tree.map(lambda w: 0, weights)
+        weights = tree.map(lambda w: 0*w, weights)
         return self.build(weights, *self.args, **self.kwargs)
     
     def cpy(self, weights):
         return tree.map(lambda x: jnp.copy(x), weights)
+    
+    def __call__(self, *args):
+        print(args)
+        self.sp_c(*args)
 

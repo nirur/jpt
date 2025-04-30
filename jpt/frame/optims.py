@@ -15,7 +15,7 @@ class SGD(Optim):
             self.cpy(zw), # velocity
         )
     
-    def __call__(self, w, g, v):
+    def call(self, w, g, v):
         v = tmp(
             lambda v, g: self.m*v - self.lr*g,
             v, g,
@@ -42,7 +42,7 @@ class AdaDelta(Optim):
             self.cpy(zw), # Grad accumulation
         )
     
-    def __call__(self, w, g, sum_x, sum_g):
+    def call(self, w, g, sum_x, sum_g):
         sum_g = tmp(
             lambda sum_g, g: sum_g*self.rho + g**2*(1-self.rho),
             sum_g, g,
@@ -59,7 +59,6 @@ class AdaDelta(Optim):
             lambda sum_x, x: sum_x*self.rho + x**2*(1-self.rho),
             sum_x, x,
         )
-        print('optim built')
         return w, (sum_x,sum_g)
 
 class Adam(Optim):
@@ -74,7 +73,7 @@ class Adam(Optim):
             0, # time
         )
     
-    def __call__(self, w, g, sum_g, sum_g2, t):
+    def call(self, w, g, sum_g, sum_g2, t):
         t += 1
         sum_g = tmp(
             lambda sum_g, g: sum_g*self.b1 + g*(1-self.b1),

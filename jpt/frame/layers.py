@@ -1,8 +1,12 @@
 from functools import partial
+from .. import const
 from .base import Layer
 import numpy as np
 import jax.numpy as jnp
-from jax import nn, devices, jit
+from jax import nn, devices, jit, random
+from jax.experimental import sparse
+
+key = const.key
 
 class Linear(Layer):
     def build(self, out):
@@ -30,12 +34,11 @@ class RMSNorm(Layer):
         self.shape = tuple(self.shape)
         shp = self.shape[1:-1]
         return (
-            self.mw(*shp, initfn=lambda _,sh: jnp.ones(sh)),
-            self.mw(*shp, initfn=lambda _,sh: jnp.zeros(sh)),
+            self.mw(*shp) * 0.05 + 1,
+            self.mw(*shp) * 0.05,
         )
     
     def __call__(self, i, gamma, beta):
-        #print(self.shape)
         ln = self.shape[-1]
         g = self.nax(gamma, ln)
         b = self.nax(beta, ln)
@@ -67,20 +70,43 @@ class PosEnc(Layer):
         out = (i @ embed) + pos
         return out
 
-class FFW(Layer):
-    def build(self, hdm):
+class KSparseLinear(Layer):
+    # Determines each neuron based on k others
+    # I could've done it the other way around, with each neuron
+    # influencing exactly k others, but that felt like unnaturally
+    # "forcing" all neurons to be roughly the same level of
+    # importance
+    def build(self, out, k):
         C = self.shape[-1]
+        self.shape[-1] = out
+        mask = np.zeros((C,out), dtype=np.float32)
+        for i in range(out):
+            j = (C*i)//out
+            for q in range(j, j+k):
+                mask[q%C, i] = random.normal(key)
+        # self.mask = mask
         return (
-            self.mw(C, hdm),
-            self.mw(hdm),
-            self.mw(hdm, C),
-            self.mw(C),
+            sparse.BCOO.fromdense(mask),#self.mw(C, out),
+            self.mw(out),
         )
     
-    def __call__(self, i, m1, b1, m2, b2):
-        i = (i @ m1) + b1
+    def __call__(self, i, mat, bias):
+        return (i @ mat) + bias
+
+class FFW(Layer):
+    def build(self, hdm):
+        self.ln1 = KSparseLinear(hdm, 4)
+        C = self.shape[-1]
+        self.ln2 = KSparseLinear(C, 2*hdm//C)
+        return (
+            self.ln1.init(self.shape),
+            self.ln2.init(self.shape),
+        )
+    
+    def __call__(self, i, l1a, l2a):
+        i = self.ln1(i, *l1a)
         i = nn.relu(i)
-        i = (i @ m2) + b2
+        i = self.ln2(i, *l2a)
         return i
 
 class MHAttn(Layer):
